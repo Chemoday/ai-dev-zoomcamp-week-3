@@ -21,7 +21,7 @@ Status legend: `[ ]` todo, `[x]` done, `[~]` in progress / blocked.
 | `docker`  | Q3–Q6      | native docker-ce 24 in WSL (no systemd); start with `sudo service docker start` |
 | `kind`    | Q5–Q6      | v0.33 installed to `~/.local/bin`; works after WSL upgrade (cgroup v2) |
 | `kubectl` | Q5–Q6      | v1.37 installed to `~/.local/bin`  |
-| `act`     | Q6         | missing → install to `~/.local/bin` |
+| `act`     | Q6         | v0.2.89 installed to `~/.local/bin`; runner image pinned in `.actrc` |
 
 ### Resolved: kind on old WSL (cgroup v1)
 
@@ -32,10 +32,13 @@ hierarchy* (inbox WSL, kernel 5.10.16, Docker on cgroup v1). Fix chosen:
 `docker info` reports cgroup v2. **Done:** kernel 6.18, Docker on cgroup v2,
 `kind create cluster --name agent-relay` succeeds.
 
-### Blocker: PR creation
+### Resolved: PR creation
 
-Fine-grained token lacks *Pull requests: write* (and *Actions: write* for Q6);
-branches are pushed, PRs to be opened once the permission is added.
+The fine-grained token has full repo permissions, but GitHub GraphQL rejects it
+(`gh pr create` → *Resource not accessible by personal access token*). PRs are
+created and merged through REST (`gh api …/pulls`, `…/pulls/N/merge`). Q2–Q5
+were merged as PRs #1–#4 with merge commits (rebase-merge would rewrite the
+stacked branches).
 
 ## Q1. Understand the project
 
@@ -104,18 +107,25 @@ branches are pushed, PRs to be opened once the permission is added.
 
 ## Q6. CI/CD with act
 
-- [ ] `.github/workflows/ci.yml`:
-  - `test` job: PostgreSQL service container, `uv run pytest` (starter tests on
-    PostgreSQL), start API against PostgreSQL, run integration test
-  - `build-deploy` job (`needs: test`): build image tagged with unique
-    `${{ github.sha }}-${{ github.run_number }}`-style tag, `kind load`,
-    `kubectl set image`, `kubectl rollout status` (with timeout), smoke check
-- [ ] Configure act: Docker socket passthrough, kind kubeconfig reachable from
-      the job container (kind network / internal kubeconfig), `.actrc`
-- [ ] Run workflow with act → green, deployed
-- [ ] Change dashboard heading to `Agent Relay v2`, rerun → new heading served by the cluster
-- [ ] Break a test on purpose → confirm deploy job is skipped and old version keeps running
-- [ ] Answer: **Keep the existing version running and stop the deployment**
+- [x] `.github/workflows/ci.yml`:
+  - `test` job (in a job container, so the `postgres` service resolves by name):
+    starter tests on PostgreSQL (`-m "not integration"`), then uvicorn against
+    PostgreSQL and the integration test with an explicit `RELAY_BASE_URL`
+  - `build-deploy` job (`needs: test`): installs kind/kubectl, reuses the local
+    cluster (creates one on GitHub), builds `agent-relay:<sha7>-<utc timestamp>`
+    (the sha alone repeats for uncommitted edits under act), `kind load`,
+    renders the tag into `k8s/20-app.yaml` and applies it (a single rollout),
+    `rollout status --timeout=180s` (undo on failure), smoke check via port-forward
+- [x] act config: `.actrc` pins `catthehacker/ubuntu:act-latest`. act mounts the
+      Docker socket and uses host networking, so the external kind kubeconfig
+      (`127.0.0.1:<port>`) works as-is.
+- [x] `act push`: both jobs green, deployed `agent-relay:5191460-…`
+- [x] Heading → `Agent Relay v2`, rerun: green, cluster serves `<h1>Agent Relay v2</h1>`
+      (checked through a separate port-forward, 2/2 pods on the new tag, 0 restarts)
+- [x] Deliberately failing test (plus a `v3-SHOULD-NOT-DEPLOY` heading, both
+      uncommitted): `test` failed, `build-deploy` never started, cluster
+      still serves v2 on the same image (edits reverted)
+- [x] Answer: **Keep the existing version running and stop the deployment**
 
 ## Docs & submission
 
