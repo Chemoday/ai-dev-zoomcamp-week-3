@@ -6,3 +6,7 @@
 __pycache__/
 .pytest_cache/
 *-credentials.json
+
+# local Claude Code state
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
