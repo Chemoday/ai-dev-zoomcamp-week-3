@@ -41,8 +41,10 @@ jobs:
         run: uv run --frozen pytest -q -m "not integration"
 
       - name: Start API against PostgreSQL
+        # Run from the venv, not `uv run`: a long-lived uv process keeps the uv
+        # cache locked and setup-uv's post-job `cache prune` times out on it.
         run: |
-          nohup uv run --frozen uvicorn main:app --host 127.0.0.1 --port 8000 > uvicorn.log 2>&1 &
+          nohup .venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 > uvicorn.log 2>&1 &
           for _ in $(seq 30); do
             curl -sf http://127.0.0.1:8000/ready && exit 0
             sleep 1
