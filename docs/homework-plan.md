@@ -54,19 +54,21 @@ Status legend: `[ ]` todo, `[x]` done, `[~]` in progress / blocked.
 
 ## Q4. PostgreSQL + Docker Compose
 
-- [ ] Port the storage seam to PostgreSQL while keeping SQLite working:
+- [x] Port the storage seam to PostgreSQL while keeping SQLite working:
   - `database.py`: dialect-aware engine; `immediate_transaction()` becomes a
     plain transaction on PostgreSQL
   - `storage.py`: claim uses `SELECT ... FOR UPDATE SKIP LOCKED`; heartbeat /
     terminal / recovery lock their rows with `FOR UPDATE`; idempotent task
     creation handles the unique-constraint race
-  - Starter test suite passes against **both** SQLite and PostgreSQL
-- [ ] `compose.yaml`: services `postgres` (named volume, `pg_isready`
+  - Starter test suite passes against **both** SQLite and PostgreSQL (5/5 each,
+    incl. a new concurrent-idempotency test that reproduces the PG race)
+- [x] `compose.yaml`: services `postgres` (named volume, `pg_isready`
       healthcheck) and `api` (`RELAY_DATABASE_URL=postgresql+psycopg://…@postgres:5432/…`,
       `depends_on: condition: service_healthy`)
-- [ ] `docker compose up --build`, run integration test, check dashboard
-- [ ] Prove data is in PostgreSQL (`docker compose exec postgres psql … -c 'select … from tasks'`)
-- [ ] Answer: **`postgres`**
+- [x] `docker compose up --build`, run integration test (1 passed)
+- [x] Prove data is in PostgreSQL (`docker compose exec postgres psql … -c 'select … from tasks'`)
+- [x] Answer: **`postgres`** (the service name is its DNS name on the compose network;
+      `localhost` would be the API container itself). Data survives `down`/`up`.
 
 ## Q5. Kubernetes with kind
 
