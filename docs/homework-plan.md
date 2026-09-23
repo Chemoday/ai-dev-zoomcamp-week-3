@@ -18,7 +18,7 @@ Status legend: `[ ]` todo, `[x]` done, `[~]` in progress / blocked.
 | Tool      | Needed for | State at start                     |
 |-----------|------------|------------------------------------|
 | `uv`      | Q1–Q2      | installed (0.12)                   |
-| `docker`  | Q3–Q6      | native docker-ce in WSL (no systemd); start with `sudo service docker start` |
+| `docker`  | Q3–Q6      | native docker-ce 24 in WSL (no systemd); start with `sudo service docker start` |
 | `kind`    | Q5–Q6      | missing → install to `~/.local/bin` |
 | `kubectl` | Q5–Q6      | missing → install to `~/.local/bin` |
 | `act`     | Q6         | missing → install to `~/.local/bin` |
@@ -45,12 +45,12 @@ Status legend: `[ ]` todo, `[x]` done, `[~]` in progress / blocked.
 
 ## Q3. Dockerfile
 
-- [ ] Multi-stage `Dockerfile` using `uv` (deps layer cached from `uv.lock`,
+- [x] Multi-stage `Dockerfile` using `uv` (deps layer cached from `uv.lock`,
       non-root user, `uvicorn main:app --host 0.0.0.0 --port 8000`),
       `HEALTHCHECK` on `/health`, plus `.dockerignore`
-- [ ] `docker build -t agent-relay:local .`
-- [ ] `docker run -p 8000:8000 agent-relay:local`, rerun integration test + dashboard
-- [ ] Answer: **`-p`**
+- [x] `docker build -t agent-relay:local .` (210 MB, runs as uid 10001)
+- [x] `docker run -p 8000:8000 -v agent-relay-data:/app/data agent-relay:local`, integration test passes
+- [x] Answer: **`-p`** (`--expose` only documents the port; it does not publish it)
 
 ## Q4. PostgreSQL + Docker Compose
 
