@@ -1,0 +1,83 @@
+# Local-demo credentials; in a real cluster create this Secret out of band.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres
+  namespace: agent-relay
+type: Opaque
+stringData:
+  POSTGRES_USER: relay
+  POSTGRES_PASSWORD: relay
+  POSTGRES_DB: relay
+  RELAY_DATABASE_URL: postgresql+psycopg://relay:relay@postgres:5432/relay
+---
+# Headless Service: gives the StatefulSet pod a stable DNS name, "postgres".
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: agent-relay
+spec:
+  clusterIP: None
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: agent-relay
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          envFrom:
+            - secretRef:
+                name: postgres
+          env:
+            # Subdirectory: the volume root contains lost+found on some provisioners.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  # One PersistentVolumeClaim per pod; it outlives pod restarts and deletion.
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

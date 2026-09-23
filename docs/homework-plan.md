@@ -19,9 +19,23 @@ Status legend: `[ ]` todo, `[x]` done, `[~]` in progress / blocked.
 |-----------|------------|------------------------------------|
 | `uv`      | Q1–Q2      | installed (0.12)                   |
 | `docker`  | Q3–Q6      | native docker-ce 24 in WSL (no systemd); start with `sudo service docker start` |
-| `kind`    | Q5–Q6      | missing → install to `~/.local/bin` |
-| `kubectl` | Q5–Q6      | missing → install to `~/.local/bin` |
+| `kind`    | Q5–Q6      | v0.33 installed to `~/.local/bin`; works after WSL upgrade (cgroup v2) |
+| `kubectl` | Q5–Q6      | v1.37 installed to `~/.local/bin`  |
 | `act`     | Q6         | missing → install to `~/.local/bin` |
+
+### Resolved: kind on old WSL (cgroup v1)
+
+`kind create cluster` failed: node PID 1 exits with *Failed to mount cgroup v1
+hierarchy* (inbox WSL, kernel 5.10.16, Docker on cgroup v1). Fix chosen:
+`wsl --update`, `C:\Users\Alex\.wslconfig` → `kernelCommandLine = cgroup_no_v1=all`,
+`wsl --shutdown`, then `sudo service docker start` and verify
+`docker info` reports cgroup v2. **Done:** kernel 6.18, Docker on cgroup v2,
+`kind create cluster --name agent-relay` succeeds.
+
+### Blocker: PR creation
+
+Fine-grained token lacks *Pull requests: write* (and *Actions: write* for Q6);
+branches are pushed, PRs to be opened once the permission is added.
 
 ## Q1. Understand the project
 
@@ -72,16 +86,21 @@ Status legend: `[ ]` todo, `[x]` done, `[~]` in progress / blocked.
 
 ## Q5. Kubernetes with kind
 
-- [ ] Install kind + kubectl; `kind create cluster --name agent-relay`
-- [ ] `k8s/` manifests:
-  - `namespace.yaml`
-  - `postgres.yaml`: Secret, StatefulSet with `volumeClaimTemplates` (persistent
-    storage), readiness `pg_isready`, headless/ClusterIP Service `postgres`
-  - `app.yaml`: ConfigMap, Deployment (2 replicas, readiness `/ready`,
-    liveness `/health`, resource requests), Service `agent-relay`
-- [ ] `kind load docker-image agent-relay:local`, `kubectl apply -f k8s/`
-- [ ] Pods ready; `kubectl port-forward svc/agent-relay 8000:80`; integration test + dashboard
-- [ ] Answer: **Deployment**
+- [x] Install kind + kubectl; `kind create cluster --name agent-relay`
+- [x] `k8s/` manifests (applied in file-name order):
+  - `00-namespace.yaml`
+  - `10-postgres.yaml`: Secret, headless Service `postgres`, StatefulSet with
+    `volumeClaimTemplates` (1Gi PVC), `pg_isready` readiness/liveness
+  - `20-app.yaml`: ConfigMap, Deployment (2 replicas, `wait-for-postgres`
+    initContainer, readiness `/ready`, liveness `/health`, requests/limits,
+    `maxUnavailable: 0` rolling update), ClusterIP Service `agent-relay` (80 → 8000)
+- [x] `kind load docker-image agent-relay:local --name agent-relay`, `kubectl apply -f k8s/`
+- [x] Pods ready with 0 restarts (without the initContainer the API crash-looped
+      3× while PostgreSQL started)
+- [x] `kubectl -n agent-relay port-forward svc/agent-relay 8080:80`; integration test
+      passes, dashboard served; task row visible via `psql` in `postgres-0`
+- [x] Data survives deleting `postgres-0` (PVC re-attached)
+- [x] Answer: **Deployment**
 
 ## Q6. CI/CD with act
 
