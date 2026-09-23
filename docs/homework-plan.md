@@ -129,6 +129,7 @@ stacked branches).
 
 ## Docs & submission
 
-- [ ] README section: run locally / Docker / Compose / kind / act
-- [ ] Answers summary in `docs/answers.md`
+- [x] README `## Deploy` section: Docker / Compose / kind / act (plus PostgreSQL and integration-test notes)
+- [x] Answers summary in `docs/answers.md`
+- [x] Q6 workflow also green on GitHub Actions (after starting uvicorn from `.venv`, not `uv run`)
 - [ ] Submit on the course platform; optional learning-in-public post
