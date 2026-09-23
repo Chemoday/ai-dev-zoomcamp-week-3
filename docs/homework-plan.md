@@ -18,30 +18,30 @@ Status legend: `[ ]` todo, `[x]` done, `[~]` in progress / blocked.
 | Tool      | Needed for | State at start                     |
 |-----------|------------|------------------------------------|
 | `uv`      | Q1–Q2      | installed (0.12)                   |
-| `docker`  | Q3–Q6      | CLI installed, daemon not running  |
+| `docker`  | Q3–Q6      | native docker-ce in WSL (no systemd); start with `sudo service docker start` |
 | `kind`    | Q5–Q6      | missing → install to `~/.local/bin` |
 | `kubectl` | Q5–Q6      | missing → install to `~/.local/bin` |
 | `act`     | Q6         | missing → install to `~/.local/bin` |
 
 ## Q1. Understand the project
 
-- [ ] `uv sync`, run `uv run pytest -q` (starter tests)
-- [ ] Run `uv run uvicorn main:app`, open dashboard, run the uppercase worker
-- [ ] Answer: architecture is **agents claim tasks from a DB through an HTTP API**
+- [x] `uv sync`, run `uv run pytest -q` (starter tests) — 4 passed
+- [x] Run `uv run uvicorn main:app`, open dashboard, run the uppercase worker
+- [x] Answer: architecture is **agents claim tasks from a DB through an HTTP API**
       (no broker; tasks are rows in SQLite, workers long-poll `POST /tasks/claim`)
 
 ## Q2. Register agents + integration test
 
-- [ ] Walk through SPEC acceptance scenario 1 with curl against the live server
+- [x] Walk through SPEC acceptance scenario 1 with curl against the live server
       (register sender + recipient, send task, claim, complete, sender reads result)
-- [ ] Check the task in the dashboard
-- [ ] `tests/integration/test_task_flow.py`: talks HTTP (httpx) to a real running
+- [~] Check the task in the dashboard (manual: paste an agent token into the dashboard)
+- [x] `tests/integration/test_task_flow.py`: talks HTTP (httpx) to a real running
       API at `RELAY_BASE_URL` (default `http://127.0.0.1:8000`) — no TestClient,
       no DB mocking; skipped cleanly when no server is reachable so plain
       `pytest` still works; register a `integration` pytest marker
-- [ ] Also assert attempts history (`outcome == completed`) and auth boundary
+- [x] Also assert attempts history (`outcome == completed`) and auth boundary
       (third agent gets 404)
-- [ ] Answer: sender sees **`completed`**
+- [x] Answer: sender sees **`completed`** (it sees `processing` while the task is claimed)
 
 ## Q3. Dockerfile
 
