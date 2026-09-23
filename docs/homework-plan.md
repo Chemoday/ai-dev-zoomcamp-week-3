@@ -1,0 +1,103 @@
+# Homework 3 plan: Test, Containerize, and Deploy Agent Relay
+
+Source of the task: [`docs/homework.md`](homework.md). Starter code:
+[alexeygrigorev/agent-relay](https://github.com/alexeygrigorev/agent-relay)
+(imported with its history; kept as the `upstream` remote).
+
+Status legend: `[ ]` todo, `[x]` done, `[~]` in progress / blocked.
+
+## 0. Repository setup
+
+- [x] Init git, base `main` on the starter history, add `origin`
+      (`Chemoday/ai-dev-zoomcamp-week-3`) and `upstream` (starter) remotes
+- [x] Ignore local Claude Code state (`settings.local.json`, lock file)
+- [x] Commit course docs, this plan, and the git-ops skill; push to `origin/main`
+
+## Environment / tooling
+
+| Tool      | Needed for | State at start                     |
+|-----------|------------|------------------------------------|
+| `uv`      | Q1–Q2      | installed (0.12)                   |
+| `docker`  | Q3–Q6      | CLI installed, daemon not running  |
+| `kind`    | Q5–Q6      | missing → install to `~/.local/bin` |
+| `kubectl` | Q5–Q6      | missing → install to `~/.local/bin` |
+| `act`     | Q6         | missing → install to `~/.local/bin` |
+
+## Q1. Understand the project
+
+- [ ] `uv sync`, run `uv run pytest -q` (starter tests)
+- [ ] Run `uv run uvicorn main:app`, open dashboard, run the uppercase worker
+- [ ] Answer: architecture is **agents claim tasks from a DB through an HTTP API**
+      (no broker; tasks are rows in SQLite, workers long-poll `POST /tasks/claim`)
+
+## Q2. Register agents + integration test
+
+- [ ] Walk through SPEC acceptance scenario 1 with curl against the live server
+      (register sender + recipient, send task, claim, complete, sender reads result)
+- [ ] Check the task in the dashboard
+- [ ] `tests/integration/test_task_flow.py`: talks HTTP (httpx) to a real running
+      API at `RELAY_BASE_URL` (default `http://127.0.0.1:8000`) — no TestClient,
+      no DB mocking; skipped cleanly when no server is reachable so plain
+      `pytest` still works; register a `integration` pytest marker
+- [ ] Also assert attempts history (`outcome == completed`) and auth boundary
+      (third agent gets 404)
+- [ ] Answer: sender sees **`completed`**
+
+## Q3. Dockerfile
+
+- [ ] Multi-stage `Dockerfile` using `uv` (deps layer cached from `uv.lock`,
+      non-root user, `uvicorn main:app --host 0.0.0.0 --port 8000`),
+      `HEALTHCHECK` on `/health`, plus `.dockerignore`
+- [ ] `docker build -t agent-relay:local .`
+- [ ] `docker run -p 8000:8000 agent-relay:local`, rerun integration test + dashboard
+- [ ] Answer: **`-p`**
+
+## Q4. PostgreSQL + Docker Compose
+
+- [ ] Port the storage seam to PostgreSQL while keeping SQLite working:
+  - `database.py`: dialect-aware engine; `immediate_transaction()` becomes a
+    plain transaction on PostgreSQL
+  - `storage.py`: claim uses `SELECT ... FOR UPDATE SKIP LOCKED`; heartbeat /
+    terminal / recovery lock their rows with `FOR UPDATE`; idempotent task
+    creation handles the unique-constraint race
+  - Starter test suite passes against **both** SQLite and PostgreSQL
+- [ ] `compose.yaml`: services `postgres` (named volume, `pg_isready`
+      healthcheck) and `api` (`RELAY_DATABASE_URL=postgresql+psycopg://…@postgres:5432/…`,
+      `depends_on: condition: service_healthy`)
+- [ ] `docker compose up --build`, run integration test, check dashboard
+- [ ] Prove data is in PostgreSQL (`docker compose exec postgres psql … -c 'select … from tasks'`)
+- [ ] Answer: **`postgres`**
+
+## Q5. Kubernetes with kind
+
+- [ ] Install kind + kubectl; `kind create cluster --name agent-relay`
+- [ ] `k8s/` manifests:
+  - `namespace.yaml`
+  - `postgres.yaml`: Secret, StatefulSet with `volumeClaimTemplates` (persistent
+    storage), readiness `pg_isready`, headless/ClusterIP Service `postgres`
+  - `app.yaml`: ConfigMap, Deployment (2 replicas, readiness `/ready`,
+    liveness `/health`, resource requests), Service `agent-relay`
+- [ ] `kind load docker-image agent-relay:local`, `kubectl apply -f k8s/`
+- [ ] Pods ready; `kubectl port-forward svc/agent-relay 8000:80`; integration test + dashboard
+- [ ] Answer: **Deployment**
+
+## Q6. CI/CD with act
+
+- [ ] `.github/workflows/ci.yml`:
+  - `test` job: PostgreSQL service container, `uv run pytest` (starter tests on
+    PostgreSQL), start API against PostgreSQL, run integration test
+  - `build-deploy` job (`needs: test`): build image tagged with unique
+    `${{ github.sha }}-${{ github.run_number }}`-style tag, `kind load`,
+    `kubectl set image`, `kubectl rollout status` (with timeout), smoke check
+- [ ] Configure act: Docker socket passthrough, kind kubeconfig reachable from
+      the job container (kind network / internal kubeconfig), `.actrc`
+- [ ] Run workflow with act → green, deployed
+- [ ] Change dashboard heading to `Agent Relay v2`, rerun → new heading served by the cluster
+- [ ] Break a test on purpose → confirm deploy job is skipped and old version keeps running
+- [ ] Answer: **Keep the existing version running and stop the deployment**
+
+## Docs & submission
+
+- [ ] README section: run locally / Docker / Compose / kind / act
+- [ ] Answers summary in `docs/answers.md`
+- [ ] Submit on the course platform; optional learning-in-public post
