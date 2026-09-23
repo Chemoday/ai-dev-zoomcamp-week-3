@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CLUSTER_NAME: agent-relay
+  NAMESPACE: agent-relay
+  RELAY_DATABASE_URL: postgresql+psycopg://relay:relay@postgres:5432/relay
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # Job container, so the service below is reachable by its name ("postgres")
+    # both on GitHub and under act.
+    container: catthehacker/ubuntu:act-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: relay
+          POSTGRES_PASSWORD: relay
+          POSTGRES_DB: relay
+        options: >-
+          --health-cmd "pg_isready -U relay -d relay"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Starter tests on PostgreSQL
+        run: uv run --frozen pytest -q -m "not integration"
+
+      - name: Start API against PostgreSQL
+        # Run from the venv, not `uv run`: a long-lived uv process keeps the uv
+        # cache locked and setup-uv's post-job `cache prune` times out on it.
+        run: |
+          nohup .venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 > uvicorn.log 2>&1 &
+          for _ in $(seq 30); do
+            curl -sf http://127.0.0.1:8000/ready && exit 0
+            sleep 1
+          done
+          cat uvicorn.log
+          exit 1
+
+      - name: Integration test
+        # An explicit RELAY_BASE_URL turns "API unreachable" into a failure, not a skip.
+        env:
+          RELAY_BASE_URL: http://127.0.0.1:8000
+        run: uv run --frozen pytest -q -m integration
+
+  build-deploy:
+    # Only a green test job may touch the cluster: on failure this job is
+    # skipped and the running Deployment keeps serving the previous image.
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kind and kubectl
+        run: |
+          mkdir -p "$HOME/bin"
+          curl -sSfLo "$HOME/bin/kind" https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64
+          curl -sSfLo "$HOME/bin/kubectl" "https://dl.k8s.io/release/$(curl -sSfL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x "$HOME/bin/kind" "$HOME/bin/kubectl"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Connect to the kind cluster
+        # Locally (act) the cluster already exists; on GitHub create a throwaway one.
+        run: |
+          kind get clusters | grep -qx "$CLUSTER_NAME" || kind create cluster --name "$CLUSTER_NAME" --wait 120s
+          kind get kubeconfig --name "$CLUSTER_NAME" > "$RUNNER_TEMP/kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
+
+      - name: Build image with a unique tag
+        # SHA alone is not unique under act (uncommitted edits reuse HEAD),
+        # so add a UTC timestamp.
+        run: |
+          TAG="${GITHUB_SHA::7}-$(date -u +%Y%m%d%H%M%S)"
+          docker build -t "agent-relay:$TAG" .
+          echo "IMAGE=agent-relay:$TAG" >> "$GITHUB_ENV"
+
+      - name: Load image into kind
+        run: kind load docker-image "$IMAGE" --name "$CLUSTER_NAME"
+
+      - name: Deploy
+        # Render the new tag into the manifest so the Deployment rolls exactly once.
+        run: |
+          kubectl apply -f k8s/00-namespace.yaml -f k8s/10-postgres.yaml
+          kubectl -n "$NAMESPACE" rollout status statefulset/postgres --timeout=180s
+          sed "s|image: agent-relay:local|image: $IMAGE|" k8s/20-app.yaml | kubectl apply -f -
+
+      - name: Wait for rollout
+        run: |
+          if ! kubectl -n "$NAMESPACE" rollout status deployment/agent-relay --timeout=180s; then
+            kubectl -n "$NAMESPACE" describe pods -l app=agent-relay | tail -40
+            kubectl -n "$NAMESPACE" rollout undo deployment/agent-relay
+            exit 1
+          fi
+
+      - name: Smoke check
+        run: |
+          kubectl -n "$NAMESPACE" port-forward svc/agent-relay 18080:80 > /dev/null 2>&1 &
+          for _ in $(seq 15); do
+            curl -sf http://127.0.0.1:18080/ready && break
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:18080/ | grep -o '<h1>[^<]*</h1>'
+          kubectl -n "$NAMESPACE" get deployment agent-relay -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
