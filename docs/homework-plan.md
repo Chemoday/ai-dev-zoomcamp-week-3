@@ -19,9 +19,22 @@ Status legend: `[ ]` todo, `[x]` done, `[~]` in progress / blocked.
 |-----------|------------|------------------------------------|
 | `uv`      | Q1–Q2      | installed (0.12)                   |
 | `docker`  | Q3–Q6      | native docker-ce 24 in WSL (no systemd); start with `sudo service docker start` |
-| `kind`    | Q5–Q6      | missing → install to `~/.local/bin` |
-| `kubectl` | Q5–Q6      | missing → install to `~/.local/bin` |
+| `kind`    | Q5–Q6      | v0.33 installed to `~/.local/bin`; needs cgroup v2 (see blocker) |
+| `kubectl` | Q5–Q6      | v1.37 installed to `~/.local/bin`  |
 | `act`     | Q6         | missing → install to `~/.local/bin` |
+
+### Blocker: kind on old WSL (cgroup v1)
+
+`kind create cluster` failed: node PID 1 exits with *Failed to mount cgroup v1
+hierarchy* (inbox WSL, kernel 5.10.16, Docker on cgroup v1). Fix chosen:
+`wsl --update`, `C:\Users\Alex\.wslconfig` → `kernelCommandLine = cgroup_no_v1=all`,
+`wsl --shutdown`, then `sudo service docker start` and verify
+`docker info` reports cgroup v2.
+
+### Blocker: PR creation
+
+Fine-grained token lacks *Pull requests: write* (and *Actions: write* for Q6);
+branches are pushed, PRs to be opened once the permission is added.
 
 ## Q1. Understand the project
 
@@ -72,7 +85,7 @@ Status legend: `[ ]` todo, `[x]` done, `[~]` in progress / blocked.
 
 ## Q5. Kubernetes with kind
 
-- [ ] Install kind + kubectl; `kind create cluster --name agent-relay`
+- [~] Install kind + kubectl (done); blocked on cgroup v2 for `kind create cluster --name agent-relay`
 - [ ] `k8s/` manifests:
   - `namespace.yaml`
   - `postgres.yaml`: Secret, StatefulSet with `volumeClaimTemplates` (persistent
