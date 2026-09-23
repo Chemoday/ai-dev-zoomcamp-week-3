@@ -160,3 +160,21 @@ def test_dashboard_is_asset_and_invalid_input_is_documented_error():
         missing_name = client.post("/api/v1/agents", json={})
         assert missing_name.status_code == 400
         assert missing_name.json()["error"]["code"] == "invalid_input"
+
+
+def test_concurrent_idempotent_submissions_create_one_task():
+    with TestClient(main.app) as client:
+        sender, _sender_headers = register(client, "sender")
+        recipient, _recipient_headers = register(client, "recipient")
+        from storage import create_task
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(
+                pool.map(
+                    lambda _i: create_task(sender["agent_id"], recipient["agent_id"], "once", "race-key"),
+                    range(8),
+                )
+            )
+        assert len({result["task_id"] for result in results}) == 1
+        with db_session() as db:
+            assert db.query(Task).count() == 1
